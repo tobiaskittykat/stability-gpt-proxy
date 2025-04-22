@@ -11,34 +11,63 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  if (!process.env.STABILITY_API_KEY) {
-    return res.status(500).json({ error: 'Stability API key is not configured' });
+  // Get API key from environment variable
+  const apiKey = process.env.STABILITY_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Stability API key is not configured on the server.' });
   }
 
   try {
+    // Log what is being sent (not key itself)
+    console.log('[Stability Proxy] Generating image with prompt:', prompt);
+
+    // Prepare request to Stability AI endpoint
     const response = await axios.post(
-      'https://api.stability.ai/v2beta/stable-image/generate/core',
+      'https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image',
       {
-        prompt: prompt,
-        aspect_ratio: '1:1',
-        mode: 'text-to-image',
+        text_prompts: [{ text: prompt, weight: 1 }],
+        cfg_scale: 7,
+        height: 1024,
+        width: 1024,
+        samples: 1,
+        steps: 30
       },
       {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${process.env.STABILITY_API_KEY}`,
+          'Authorization': `Bearer ${apiKey}`,
+          'Accept': 'application/json'
         },
+        timeout: 90000 // up to 90 seconds
       }
     );
 
-    // Return the image URL or base64 data
-    res.status(200).json({ image: response.data.image });
-  } catch (err) {
-    console.error('Stability API error:', err.response?.data || err.message);
+    // Validate response
+    if (
+      !response.data ||
+      !response.data.artifacts ||
+      !response.data.artifacts[0] ||
+      !response.data.artifacts[0].base64
+    ) {
+      console.error('[Stability Proxy] Invalid response from Stability API:', response.data);
+      return res.status(502).json({
+        error: 'Invalid response from Stability AI.',
+        details: response.data
+      });
+    }
 
-    res.status(500).json({
+    // Format as data URL
+    const base64 = response.data.artifacts[0].base64;
+    const image = `data:image/png;base64,${base64}`;
+
+    res.status(200).json({ image });
+  } catch (error) {
+    // Log and respond with detailed error info
+    console.error('[Stability Proxy] Error:', error?.response?.data || error.message);
+
+    return res.status(500).json({
       error: 'Image generation failed',
-      details: err.response?.data || err.message,
+      details: error?.response?.data || error.message
     });
   }
 }
