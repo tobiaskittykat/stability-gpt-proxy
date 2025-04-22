@@ -1,32 +1,38 @@
-const axios = require('axios');
+const express = require("express");
+const axios = require("axios");
+const FormData = require("form-data");
 
-module.exports = async (req, res) => {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Only POST requests are allowed' });
-  }
+const app = express();
+app.use(express.json());
 
+const STABILITY_API_KEY = process.env.STABILITY_API_KEY;
+
+app.post("/api/generate", async (req, res) => {
   const { prompt } = req.body;
 
   try {
+    const formData = new FormData();
+    formData.append("prompt", prompt);
+    formData.append("mode", "text-to-image");
+    formData.append("aspect_ratio", "1:1");
+
     const response = await axios.post(
-      'https://api.stability.ai/v2beta/stable-image/generate/core',
-      {
-        prompt,
-        aspect_ratio: "1:1",
-        mode: "text-to-image"
-      },
+      "https://api.stability.ai/v2beta/stable-image/generate/core",
+      formData,
       {
         headers: {
-          Authorization: `Bearer ${process.env.STABILITY_API_KEY}`,
-          Accept: 'application/json',
-          'Content-Type': 'application/json'
+          ...formData.getHeaders(),
+          Authorization: `Bearer ${STABILITY_API_KEY}`
         }
       }
     );
 
-    res.status(200).json({ image: response.data.image });
+    res.json({ image: response.data.image });
   } catch (err) {
     console.error(err.response?.data || err.message);
     res.status(500).json({ error: "Image generation failed." });
   }
-};
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
